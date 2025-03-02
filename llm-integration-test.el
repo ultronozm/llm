@@ -31,6 +31,7 @@
 ;; - GEMINI_KEY: A Gemini API key.
 ;; - VERTEX_PROJECT: A Google Cloud Vertex project.
 ;; - OLLAMA_CHAT_MODELS: A list of Ollama models to test.
+;; - DEEPSEEK_KEY: A DeepSeek API key.
 ;; - AZURE_URL: The URL of the Azure API.
 ;; - AZURE_KEY: The key for the Azure API.
 ;; - AZURE_CHAT_MODEL: The name of the chat model to test.
@@ -137,6 +138,10 @@ else.  We really just want to see if it's in the right ballpark."
     (when (getenv "GITHUB_TOKEN")
       (require 'llm-github)
       (push (make-llm-github :key (getenv "GITHUB_TOKEN")) providers))
+    (when (getenv "DEEPSEEK_KEY")
+      (require 'llm-deepseek)
+      (push (make-llm-deepseek :key (getenv "DEEPSEEK_KEY")) providers)
+      (push (make-llm-deepseek :key (getenv "DEEPSEEK_KEY") :chat-model "deepseek-reasoner") providers))
     (when (getenv "OLLAMA_CHAT_MODELS")
       (require 'llm-ollama)
       ;; This variable is a list of models to test.
@@ -318,7 +323,7 @@ else.  We really just want to see if it's in the right ballpark."
       (should (llm-integration-test-string-eq llm-integration-test-chat-answer (string-trim (plist-get streamed-result :text)))))))
 
 (llm-def-integration-test llm-tool-use (provider)
-  (when (member 'function-calls (llm-capabilities provider))
+  (when (member 'tool-use (llm-capabilities provider))
     (let ((prompt (llm-integration-test-tool-use-prompt)))
       (should (equal
                (llm-chat provider prompt)
@@ -327,7 +332,7 @@ else.  We really just want to see if it's in the right ballpark."
       (llm-chat provider prompt))))
 
 (llm-def-integration-test llm-tool-use-multi-output (provider)
-  (when (member 'function-calls (llm-capabilities provider))
+  (when (member 'tool-use (llm-capabilities provider))
     (let* ((prompt (llm-integration-test-tool-use-prompt))
            (result (llm-chat provider prompt t)))
       (should (equal
@@ -339,8 +344,22 @@ else.  We really just want to see if it's in the right ballpark."
       ;; Test that we can send the function back to the provider without error.
       (llm-chat provider prompt t))))
 
+(llm-def-integration-test llm-tool-use-streaming-multi-output (provider)
+  (when (member 'streaming-tool-use (llm-capabilities provider))
+    (let* ((prompt (llm-integration-test-tool-use-prompt))
+           (result nil))
+      (llm-chat-streaming provider prompt #'ignore (lambda (response) (setq result response)) (lambda (_ err) (error err)) t)
+      (while (null result)
+        (sleep-for 0.1))
+      (should (equal
+               (plist-get result :tool-results)
+               llm-integration-test-fc-answer))
+      (should (plist-get result :tool-uses))
+      (if (plist-get result :text)
+          (should (> (length (plist-get result :text)) 0))))))
+
 (llm-def-integration-test llm-tool-use-multiple (provider)
-  (when (member 'function-calls (llm-capabilities provider))
+  (when (member 'tool-use (llm-capabilities provider))
     (let ((prompt (llm-integration-test-fc-multiple-prompt)))
       ;; Sending back multiple answers often doesn't happen, so we can't reliably
       ;; check for this yet.
